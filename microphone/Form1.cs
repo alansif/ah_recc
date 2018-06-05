@@ -16,6 +16,7 @@ using NAudio.Lame;
 using System.Net.Sockets;
 using System.Net;
 
+using Newtonsoft.Json;
 
 namespace microphone
 {
@@ -39,43 +40,74 @@ namespace microphone
         private double[] accum = new double[NUM_POI_FREQS];
         private int ticks = 0;
 
-        private string localip;
+        private string LocalIP;
         private UdpClient udp = new UdpClient();
 
+        private string FilenameLabel;
+        private string FileDir;
+        private string ServerUrl;
+        private string TSDB;
+        
         public Form1()
         {
             InitializeComponent();
 
+            FilenameLabel = System.Configuration.ConfigurationManager.AppSettings["label"].ToString();
+            FileDir = System.Configuration.ConfigurationManager.AppSettings["dir"].ToString();
+            ServerUrl = System.Configuration.ConfigurationManager.AppSettings["server"].ToString();
+
             string hostName = Dns.GetHostName();
             IPAddress[] ipadrlist = Dns.GetHostAddresses(hostName);
-            localip = ipadrlist[0].ToString();
+            LocalIP = ipadrlist[0].ToString();
             foreach (IPAddress ipa in ipadrlist)
             {
                 if (ipa.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    localip = ipa.ToString();
+                    LocalIP = ipa.ToString();
                     break;
                 }
             }
-            Console.WriteLine(localip);
+
+            Console.WriteLine(FilenameLabel);
+            Console.WriteLine(FileDir);
+            Console.WriteLine(ServerUrl);
+            Console.WriteLine(LocalIP);
 
             double k = (double)RATE / (BUFFERSIZE / 2);
             for (int i = 0; i < NUM_POI_FREQS; ++i)
             {
-//                POI_FREQS[i] = START_FREQ * Math.Pow(FREQ_SCALE, (double)i);
+                // POI_FREQS[i] = START_FREQ * Math.Pow(FREQ_SCALE, (double)i);
                 POI_FREQS[i] = START_FREQ + i * FREQ_STEP;
                 POI_FREQS_INDEXIES[i] = (int)(POI_FREQS[i] / k);
             }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            if (!System.IO.Directory.Exists(FileDir))
+            {
+                MessageBox.Show("配置文件中的路径不存在，程序将关闭", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Application.Exit();
+                return;
+            }
+
+            GetFromServer();
 
             // see what audio devices are available
             int devcount = WaveIn.DeviceCount;
             Console.Out.WriteLine("Device Count: {0}.", devcount);
+            if (devcount == 0)
+            {
+                MessageBox.Show("无法连接麦克风，程序将关闭", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Application.Exit();
+                return;
+            }
 
             // get the WaveIn class started
             wi = new WaveIn();
             wi.DeviceNumber = 0;
             wi.WaveFormat = new NAudio.Wave.WaveFormat(RATE, 1);
-//            wi.BufferMilliseconds = (int)((double)BUFFERSIZE / (double)RATE * 1000.0);
+            // wi.BufferMilliseconds = (int)((double)BUFFERSIZE / (double)RATE * 1000.0);
 
             // create a wave buffer and start the recording
             wi.DataAvailable += new EventHandler<WaveInEventArgs>(wi_DataAvailable);
@@ -85,6 +117,14 @@ namespace microphone
 
             bwp.DiscardOnBufferOverflow = true;
             wi.StartRecording();
+        }
+
+        private void GetFromServer()
+        {
+            var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
+            dynamic jo = JsonConvert.DeserializeObject(jsonText);
+            TSDB = jo["tsdb"]["host"];
+            Console.WriteLine(TSDB);
         }
 
         // adds data to the audio recording buffer
@@ -138,7 +178,7 @@ namespace microphone
             scottPlotUC1.Ys = Ys;
 
             //update scottplot (FFT, frequency domain)
-            const int kc = 2;
+            const int kc = 5;
             Ys2 = FFT(Ys);
             scottPlotUC2.Xs = Xs2.Take(Xs2.Length / kc).ToArray();
             scottPlotUC2.Ys = Ys2.Take(Ys2.Length / kc).ToArray();
@@ -160,16 +200,16 @@ namespace microphone
 
             if (Environment.TickCount - ticks > 1000)
             {
-                scottPlotUC3.Xs = Xs3;
-                scottPlotUC3.Ys = accum;
-                scottPlotUC3.SP.AxisSet(0, POI_FREQS_INDEXIES.Length, 0, 1000);
-                scottPlotUC3.UpdateGraph();
+//                scottPlotUC3.Xs = Xs3;
+//                scottPlotUC3.Ys = accum;
+//                scottPlotUC3.SP.AxisSet(0, POI_FREQS_INDEXIES.Length, 0, 1000);
+//                scottPlotUC3.UpdateGraph();
                 SendToInflux();
                 ClearAccum();
             }
 
-            scottPlotUC1.SP.AxisSet(0, BUFFERSIZE / 2, -20000, 20000);
-            scottPlotUC2.SP.AxisSet(0, (double)RATE / 1000 / kc, 0, 1000);
+            scottPlotUC1.SP.AxisSet(0, BUFFERSIZE / 2, -8000, 8000);
+            scottPlotUC2.SP.AxisSet(0, (double)RATE / 1000 / kc, 0, 800);
 
             // update the displays
             scottPlotUC1.UpdateGraph();
@@ -178,7 +218,7 @@ namespace microphone
             Application.DoEvents();
             scottPlotUC1.Update();
             scottPlotUC2.Update();
-            scottPlotUC3.Update();
+//            scottPlotUC3.Update();
 
             timer1.Enabled = true;
 
@@ -204,7 +244,9 @@ namespace microphone
 
         private void button1_Click(object sender, EventArgs e)
         {
-            //            wri = new LameMP3FileWriter(@"d:\temp\test_output1.mp3", wi.WaveFormat, 32);
+            string filename = DateTime.Now.ToString("yyyyMMddHHmm") + ".mp3";
+            Console.WriteLine(filename);
+            //            wri = new LameMP3FileWriter(FileDir + filename, wi.WaveFormat, 64);
             //            wi.StartRecording();
             ClearAccum();
             UpdateAudioGraph();
@@ -230,30 +272,19 @@ namespace microphone
             wi.StopRecording();
         }
 
-        private int fltag = 0;
-
         private void SendToInflux()
         {
-            string s;
-            if (fltag == 0)
-            {
-                s = "surv,ip=" + localip + " ";
-                fltag = 1;
-            } else
-            {
-                s = "surv,ip=10.0.0.199 ";
-                fltag = 0;
-            }
+            string s = "surv,ip=" + LocalIP + " ";
             for (int i = 0; i < accum.Length; ++i)
             {
                 s += "c" + String.Format("{0:00}", i) + "=" + String.Format("{0:0.0}", accum[i]) ;
                 if (i < accum.Length - 1) s += ",";
             }
-            Console.WriteLine(s);
+            textBox1.Text = DateTime.Now.ToString() + " - " + s;
             Byte[] sendBytes = Encoding.ASCII.GetBytes(s);
             try
             {
-                udp.Send(sendBytes, sendBytes.Length, "10.0.0.27", 8089);
+                udp.Send(sendBytes, sendBytes.Length, TSDB, 8089);
             }
             catch(Exception e)
             {
