@@ -16,5 +16,13 @@ namespace microphone
         {
             InitializeComponent();
         }
+
+        public void SetValue(double Percentage)
+        {
+            int value = (int)(Percentage);
+            if (value < 0) value = 0;
+            if (value > 100) value = 100;
+            progressBar1.Value = value;
+        }
     }
 }

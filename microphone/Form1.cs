@@ -44,15 +44,18 @@ namespace microphone
         private string LocalIP;
         private UdpClient udp = new UdpClient();
 
-        private string Label;
         private string FileDir;
         private string ServerShare;
         private string ServerDir;
-        private string ServerUrl;
         private string TSDB;
 
+        private string Filename;
         private string FullFileServerPath;
         private string FullLocalFilename;
+        private string FullServerFilename;
+
+        private readonly string username = "admin";
+        private readonly string password = "admin@123456";
 
         private bool IsRecording = false;
 
@@ -60,12 +63,10 @@ namespace microphone
         {
             InitializeComponent();
 
-            Label = System.Configuration.ConfigurationManager.AppSettings["label"].ToString();
-            Label = Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(Label));
-            FileDir = System.Configuration.ConfigurationManager.AppSettings["dir"].ToString();
+            FileDir = System.Configuration.ConfigurationManager.AppSettings["LocalDir"].ToString();
             ServerShare = System.Configuration.ConfigurationManager.AppSettings["FileServerShare"].ToString();
             ServerDir = System.Configuration.ConfigurationManager.AppSettings["FileServerDir"].ToString();
-            ServerUrl = System.Configuration.ConfigurationManager.AppSettings["ServerUrl"].ToString();
+            TSDB = System.Configuration.ConfigurationManager.AppSettings["TSDB"].ToString();
 
             string hostName = Dns.GetHostName();
             IPAddress[] ipadrlist = Dns.GetHostAddresses(hostName);
@@ -79,13 +80,6 @@ namespace microphone
                 }
             }
 
-            Console.WriteLine(Label);
-            Console.WriteLine(FileDir);
-            Console.WriteLine(ServerShare);
-            Console.WriteLine(ServerDir);
-            Console.WriteLine(ServerUrl);
-            Console.WriteLine(LocalIP);
-
             double k = (double)RATE / (BUFFERSIZE / 2);
             for (int i = 0; i < NUM_POI_FREQS; ++i)
             {
@@ -95,7 +89,7 @@ namespace microphone
             }
         }
 
-        private string PrepareFileServerDir(string username, string password)
+        private string PrepareFileServerDir()
         {
             try
             {
@@ -108,10 +102,6 @@ namespace microphone
                         return "";
                     }
                     p = Path.Combine(p, DateTime.Now.Year.ToString());
-                    if (!Directory.Exists(p))
-                    {
-                        Directory.CreateDirectory(p);
-                    }
                     p = Path.Combine(p, DateTime.Now.Month.ToString() + "月");
                     if (!Directory.Exists(p))
                     {
@@ -123,12 +113,11 @@ namespace microphone
             catch (Exception)
             {
                 MessageBox.Show("文件服务器连接失败", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                Application.Exit();
             }
             return "";
         }
 
-        private void Form1_Load(object sender, EventArgs e)
+        private void Form1_Shown(object sender, EventArgs e)
         {
             if (!Directory.Exists(FileDir))
             {
@@ -136,15 +125,15 @@ namespace microphone
                 Application.Exit();
                 return;
             }
-            FullLocalFilename = Path.Combine(FileDir, DateTime.Now.ToString("yyyyMMddHHmm") + ".mp3");
-
-            //            GetFromServer();
-            FullFileServerPath = PrepareFileServerDir("admin", "admin@123456");
+            Filename = DateTime.Now.ToString("yyyyMMddHHmm") + ".mp3";
+            FullLocalFilename = Path.Combine(FileDir, Filename);
+            FullFileServerPath = PrepareFileServerDir();
             if (FullFileServerPath.Length == 0)
             {
                 Application.Exit();
                 return;
             }
+            FullServerFilename = Path.Combine(FullFileServerPath, Filename);
 
             // see what audio devices are available
             int devcount = WaveIn.DeviceCount;
@@ -152,56 +141,78 @@ namespace microphone
             if (devcount == 0)
             {
                 MessageBox.Show("无法连接麦克风，程序将关闭", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                Application.Exit();
+//                Application.Exit();
                 return;
             }
 
             // get the WaveIn class started
-            wi = new WaveIn();
-            wi.DeviceNumber = 0;
-            wi.WaveFormat = new NAudio.Wave.WaveFormat(RATE, 1);
+            wi = new WaveIn
+            {
+                DeviceNumber = 0,
+                WaveFormat = new NAudio.Wave.WaveFormat(RATE, 1)
+            };
             // wi.BufferMilliseconds = (int)((double)BUFFERSIZE / (double)RATE * 1000.0);
+            Console.WriteLine(wi.BufferMilliseconds);
 
             // create a wave buffer and start the recording
             wi.DataAvailable += new EventHandler<WaveInEventArgs>(wi_DataAvailable);
             wi.RecordingStopped += waveIn_RecordingStopped;
-            bwp = new BufferedWaveProvider(wi.WaveFormat);
-            bwp.BufferLength = BUFFERSIZE * 2;
-
-            bwp.DiscardOnBufferOverflow = true;
-            wi.StartRecording();
-            StartRecord();
+            bwp = new BufferedWaveProvider(wi.WaveFormat)
+            {
+                BufferLength = BUFFERSIZE * 2,
+                DiscardOnBufferOverflow = true
+            };
+            //            wi.StartRecording();
+            //            StartRecord();
         }
 
-        private void GetFromServer()
+        /*
+                private void GetFromServer()
+                {
+                    try
+                    {
+                        var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
+                        dynamic jo = JsonConvert.DeserializeObject(jsonText);
+                        TSDB = jo["tsdb"]["host"];
+                        Console.WriteLine(TSDB);
+                    }
+                    catch (Exception)
+                    {
+                        MessageBox.Show("无法连接到服务器 " + ServerUrl, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+        */
+
+        private UploadingForm uf;
+
+        private void button3_Click(object sender, EventArgs e)
         {
+            uf = new UploadingForm();
+            uf.Show();
+            CopyFileE(FullLocalFilename, FullServerFilename);
+            uf.Close();
+        }
+
+        private void CopyFileE(string src, string dst)
+        {
+            if (!File.Exists(src)) return;
             try
             {
-                var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
-                dynamic jo = JsonConvert.DeserializeObject(jsonText);
-                TSDB = jo["tsdb"]["host"];
-                Console.WriteLine(TSDB);
+                using (new NetworkConnection(ServerShare, username, password))
+                {
+                    Action<FileCopyLib.FileProgress> fp = delegate (FileCopyLib.FileProgress s) { OnFileProgress(s); };
+                    FileCopyLib.FileCopier.CopyWithProgress(src, dst, fp);
+                }
             }
             catch (Exception)
             {
-                MessageBox.Show("无法连接到服务器 " + ServerUrl, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("上传失败", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-        }
-
-        private void CopyFileE(string src_filename, string dst_filename)
-        {
-            var src = Path.Combine(FileDir, src_filename);
-            if (!File.Exists(src)) return;
-            if (!Directory.Exists(ServerDir)) return;
-            var dst = Path.Combine(ServerDir, dst_filename);
-            Action<FileCopyLib.FileProgress> fp = delegate(FileCopyLib.FileProgress s) { OnFileProgress(s); };
-            FileCopyLib.FileCopier.CopyWithProgress(src, dst, fp);
-            Console.WriteLine("completed");
         }
 
         private void OnFileProgress(FileCopyLib.FileProgress s)
         {
-            Console.WriteLine(s.Percentage);
+            uf.SetValue(s.Percentage);
         }
 
         // adds data to the audio recording buffer
@@ -349,7 +360,7 @@ namespace microphone
 
         private void SendToInflux()
         {
-            string s = "surv,ip=" + LocalIP + ",label=" + Label + " ";
+            string s = "surv,ip=" + LocalIP  + " ";
             for (int i = 0; i < accum.Length; ++i)
             {
                 s += "c" + String.Format("{0:00}", i) + "=" + String.Format("{0:0.0}", accum[i]) ;
@@ -365,13 +376,6 @@ namespace microphone
             {
                 Console.Error.WriteLine(e.ToString());
             }
-        }
-
-        private void button3_Click(object sender, EventArgs e)
-        {
-//            CopyFileE("cn_visio_professional_2016_x86_x64_dvd_6970929.iso", "abc.iso");
-            var f = new UploadingForm();
-            f.ShowDialog();
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
