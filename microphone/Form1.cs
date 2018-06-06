@@ -17,6 +17,7 @@ using System.Net.Sockets;
 using System.Net;
 
 using Newtonsoft.Json;
+using System.IO;
 
 namespace microphone
 {
@@ -43,18 +44,28 @@ namespace microphone
         private string LocalIP;
         private UdpClient udp = new UdpClient();
 
-        private string FilenameLabel;
+        private string Label;
         private string FileDir;
+        private string ServerShare;
+        private string ServerDir;
         private string ServerUrl;
         private string TSDB;
-        
+
+        private string FullFileServerPath;
+        private string FullLocalFilename;
+
+        private bool IsRecording = false;
+
         public Form1()
         {
             InitializeComponent();
 
-            FilenameLabel = System.Configuration.ConfigurationManager.AppSettings["label"].ToString();
+            Label = System.Configuration.ConfigurationManager.AppSettings["label"].ToString();
+            Label = Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(Label));
             FileDir = System.Configuration.ConfigurationManager.AppSettings["dir"].ToString();
-            ServerUrl = System.Configuration.ConfigurationManager.AppSettings["server"].ToString();
+            ServerShare = System.Configuration.ConfigurationManager.AppSettings["FileServerShare"].ToString();
+            ServerDir = System.Configuration.ConfigurationManager.AppSettings["FileServerDir"].ToString();
+            ServerUrl = System.Configuration.ConfigurationManager.AppSettings["ServerUrl"].ToString();
 
             string hostName = Dns.GetHostName();
             IPAddress[] ipadrlist = Dns.GetHostAddresses(hostName);
@@ -68,8 +79,10 @@ namespace microphone
                 }
             }
 
-            Console.WriteLine(FilenameLabel);
+            Console.WriteLine(Label);
             Console.WriteLine(FileDir);
+            Console.WriteLine(ServerShare);
+            Console.WriteLine(ServerDir);
             Console.WriteLine(ServerUrl);
             Console.WriteLine(LocalIP);
 
@@ -82,16 +95,56 @@ namespace microphone
             }
         }
 
+        private string PrepareFileServerDir(string username, string password)
+        {
+            try
+            {
+                using (new NetworkConnection(ServerShare, username, password))
+                {
+                    string p = Path.Combine(ServerShare, ServerDir);
+                    if (!Directory.Exists(p))
+                    {
+                        MessageBox.Show("文件服务器路径无法访问", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return "";
+                    }
+                    p = Path.Combine(p, DateTime.Now.Year.ToString());
+                    if (!Directory.Exists(p))
+                    {
+                        Directory.CreateDirectory(p);
+                    }
+                    p = Path.Combine(p, DateTime.Now.Month.ToString() + "月");
+                    if (!Directory.Exists(p))
+                    {
+                        Directory.CreateDirectory(p);
+                    }
+                    return p;
+                }
+            }
+            catch (Exception)
+            {
+                MessageBox.Show("文件服务器连接失败", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Application.Exit();
+            }
+            return "";
+        }
+
         private void Form1_Load(object sender, EventArgs e)
         {
-            if (!System.IO.Directory.Exists(FileDir))
+            if (!Directory.Exists(FileDir))
             {
-                MessageBox.Show("配置文件中的路径不存在，程序将关闭", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("本地文件路径不存在，程序将关闭", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Application.Exit();
                 return;
             }
+            FullLocalFilename = Path.Combine(FileDir, DateTime.Now.ToString("yyyyMMddHHmm") + ".mp3");
 
-            GetFromServer();
+            //            GetFromServer();
+            FullFileServerPath = PrepareFileServerDir("admin", "admin@123456");
+            if (FullFileServerPath.Length == 0)
+            {
+                Application.Exit();
+                return;
+            }
 
             // see what audio devices are available
             int devcount = WaveIn.DeviceCount;
@@ -117,14 +170,38 @@ namespace microphone
 
             bwp.DiscardOnBufferOverflow = true;
             wi.StartRecording();
+            StartRecord();
         }
 
         private void GetFromServer()
         {
-            var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
-            dynamic jo = JsonConvert.DeserializeObject(jsonText);
-            TSDB = jo["tsdb"]["host"];
-            Console.WriteLine(TSDB);
+            try
+            {
+                var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
+                dynamic jo = JsonConvert.DeserializeObject(jsonText);
+                TSDB = jo["tsdb"]["host"];
+                Console.WriteLine(TSDB);
+            }
+            catch (Exception)
+            {
+                MessageBox.Show("无法连接到服务器 " + ServerUrl, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void CopyFileE(string src_filename, string dst_filename)
+        {
+            var src = Path.Combine(FileDir, src_filename);
+            if (!File.Exists(src)) return;
+            if (!Directory.Exists(ServerDir)) return;
+            var dst = Path.Combine(ServerDir, dst_filename);
+            Action<FileCopyLib.FileProgress> fp = delegate(FileCopyLib.FileProgress s) { OnFileProgress(s); };
+            FileCopyLib.FileCopier.CopyWithProgress(src, dst, fp);
+            Console.WriteLine("completed");
+        }
+
+        private void OnFileProgress(FileCopyLib.FileProgress s)
+        {
+            Console.WriteLine(s.Percentage);
         }
 
         // adds data to the audio recording buffer
@@ -141,6 +218,7 @@ namespace microphone
             // flush output to finish MP3 file correctly
             wri.Flush();
             wri.Dispose();
+            IsRecording = false;
         }
 
         public void UpdateAudioGraph()
@@ -221,7 +299,6 @@ namespace microphone
 //            scottPlotUC3.Update();
 
             timer1.Enabled = true;
-
         }
 
         public double[] FFT(double[] data)
@@ -242,12 +319,15 @@ namespace microphone
             //todo: this could be much faster by reusing variables
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private void button2_Click(object sender, EventArgs e)
         {
-            string filename = DateTime.Now.ToString("yyyyMMddHHmm") + ".mp3";
-            Console.WriteLine(filename);
-            //            wri = new LameMP3FileWriter(FileDir + filename, wi.WaveFormat, 64);
-            //            wi.StartRecording();
+            wi.StopRecording();
+        }
+
+        private void StartRecord()
+        {
+            IsRecording = true;
+            wri = new LameMP3FileWriter(FullLocalFilename, wi.WaveFormat, 64);
             ClearAccum();
             UpdateAudioGraph();
             timer1.Enabled = true;
@@ -267,14 +347,9 @@ namespace microphone
             UpdateAudioGraph();
         }
 
-        private void button2_Click(object sender, EventArgs e)
-        {
-            wi.StopRecording();
-        }
-
         private void SendToInflux()
         {
-            string s = "surv,ip=" + LocalIP + " ";
+            string s = "surv,ip=" + LocalIP + ",label=" + Label + " ";
             for (int i = 0; i < accum.Length; ++i)
             {
                 s += "c" + String.Format("{0:00}", i) + "=" + String.Format("{0:0.0}", accum[i]) ;
@@ -289,6 +364,40 @@ namespace microphone
             catch(Exception e)
             {
                 Console.Error.WriteLine(e.ToString());
+            }
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+//            CopyFileE("cn_visio_professional_2016_x86_x64_dvd_6970929.iso", "abc.iso");
+            var f = new UploadingForm();
+            f.ShowDialog();
+        }
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            switch (e.CloseReason)
+            {
+                //自身窗口上的关闭按钮
+                case CloseReason.FormOwnerClosing:
+                //用户通过UI关闭窗口或者通过Alt+F4关闭窗口
+                case CloseReason.UserClosing:
+                    e.Cancel = true;//拦截，不响应操作
+                    break;
+                //应用程序要求关闭窗口
+                case CloseReason.ApplicationExitCall:
+                    e.Cancel = false; //不拦截，响应操作
+                    break;
+                //任务管理器关闭进程
+                case CloseReason.TaskManagerClosing:
+                    e.Cancel = false;//不拦截，响应操作
+                    break;
+                //操作系统准备关机
+                case CloseReason.WindowsShutDown:
+                    e.Cancel = false;//不拦截，响应操作
+                    break;
+                default:
+                    break;
             }
         }
     }

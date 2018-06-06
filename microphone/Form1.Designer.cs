@@ -31,10 +31,10 @@
             this.components = new System.ComponentModel.Container();
             this.scottPlotUC1 = new ScottPlot.ScottPlotUC();
             this.scottPlotUC2 = new ScottPlot.ScottPlotUC();
-            this.button1 = new System.Windows.Forms.Button();
             this.timer1 = new System.Windows.Forms.Timer(this.components);
             this.button2 = new System.Windows.Forms.Button();
             this.textBox1 = new System.Windows.Forms.TextBox();
+            this.button3 = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // scottPlotUC1
@@ -50,16 +50,6 @@
             this.scottPlotUC2.Name = "scottPlotUC2";
             this.scottPlotUC2.Size = new System.Drawing.Size(500, 240);
             this.scottPlotUC2.TabIndex = 5;
-            // 
-            // button1
-            // 
-            this.button1.Location = new System.Drawing.Point(221, 318);
-            this.button1.Name = "button1";
-            this.button1.Size = new System.Drawing.Size(75, 22);
-            this.button1.TabIndex = 6;
-            this.button1.Text = "button1";
-            this.button1.UseVisualStyleBackColor = true;
-            this.button1.Click += new System.EventHandler(this.button1_Click);
             // 
             // timer1
             // 
@@ -84,18 +74,30 @@
             this.textBox1.Size = new System.Drawing.Size(925, 25);
             this.textBox1.TabIndex = 8;
             // 
+            // button3
+            // 
+            this.button3.Location = new System.Drawing.Point(597, 316);
+            this.button3.Name = "button3";
+            this.button3.Size = new System.Drawing.Size(75, 23);
+            this.button3.TabIndex = 9;
+            this.button3.Text = "button3";
+            this.button3.UseVisualStyleBackColor = true;
+            this.button3.Click += new System.EventHandler(this.button3_Click);
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(1037, 364);
+            this.Controls.Add(this.button3);
             this.Controls.Add(this.textBox1);
             this.Controls.Add(this.button2);
-            this.Controls.Add(this.button1);
             this.Controls.Add(this.scottPlotUC2);
             this.Controls.Add(this.scottPlotUC1);
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             this.Name = "Form1";
             this.Text = "录音";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Form1_FormClosing);
             this.Load += new System.EventHandler(this.Form1_Load);
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -105,10 +107,10 @@
         #endregion
         private ScottPlot.ScottPlotUC scottPlotUC1;
         private ScottPlot.ScottPlotUC scottPlotUC2;
-        private System.Windows.Forms.Button button1;
         private System.Windows.Forms.Timer timer1;
         private System.Windows.Forms.Button button2;
         private System.Windows.Forms.TextBox textBox1;
+        private System.Windows.Forms.Button button3;
     }
 }
 
