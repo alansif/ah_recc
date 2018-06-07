@@ -110,8 +110,9 @@ namespace microphone
                     return p;
                 }
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                Console.WriteLine(e);
                 MessageBox.Show("文件服务器连接失败", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return "";
@@ -141,7 +142,7 @@ namespace microphone
             if (devcount == 0)
             {
                 MessageBox.Show("无法连接麦克风，程序将关闭", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-//                Application.Exit();
+                Application.Exit();
                 return;
             }
 
@@ -162,51 +163,38 @@ namespace microphone
                 BufferLength = BUFFERSIZE * 2,
                 DiscardOnBufferOverflow = true
             };
-            //            wi.StartRecording();
-            //            StartRecord();
+            StartRecord();
         }
-
-        /*
-                private void GetFromServer()
-                {
-                    try
-                    {
-                        var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
-                        dynamic jo = JsonConvert.DeserializeObject(jsonText);
-                        TSDB = jo["tsdb"]["host"];
-                        Console.WriteLine(TSDB);
-                    }
-                    catch (Exception)
-                    {
-                        MessageBox.Show("无法连接到服务器 " + ServerUrl, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-        */
 
         private UploadingForm uf;
 
-        private void button3_Click(object sender, EventArgs e)
+        private void UploadFileToServer()
         {
             uf = new UploadingForm();
             uf.Show();
-            CopyFileE(FullLocalFilename, FullServerFilename);
+            CopyFiles(FileDir, FullServerFilename);
             uf.Close();
+            uf.Dispose();
         }
 
-        private void CopyFileE(string src, string dst)
+        private void CopyFiles(string srcdir, string dst)
         {
-            if (!File.Exists(src)) return;
+            if (!Directory.Exists(srcdir)) return;
             try
             {
                 using (new NetworkConnection(ServerShare, username, password))
                 {
-                    Action<FileCopyLib.FileProgress> fp = delegate (FileCopyLib.FileProgress s) { OnFileProgress(s); };
-                    FileCopyLib.FileCopier.CopyWithProgress(src, dst, fp);
+                    string[] subFiles = Directory.GetFiles(srcdir, DateTime.Now.ToString("yyyyMMdd") + "*");
+                    foreach (string src in subFiles)
+                    {
+                        Action<FileCopyLib.FileProgress> fp = delegate (FileCopyLib.FileProgress s) { OnFileProgress(s); };
+                        FileCopyLib.FileCopier.CopyWithProgress(src, dst, fp);
+                    }
                 }
             }
             catch (Exception)
             {
-                MessageBox.Show("上传失败", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("上传失败，请IT协助手工上传", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -225,7 +213,6 @@ namespace microphone
 
         void waveIn_RecordingStopped(object sender, StoppedEventArgs e)
         {
-            Console.WriteLine("stopped");
             // flush output to finish MP3 file correctly
             wri.Flush();
             wri.Dispose();
@@ -297,8 +284,8 @@ namespace microphone
                 ClearAccum();
             }
 
-            scottPlotUC1.SP.AxisSet(0, BUFFERSIZE / 2, -8000, 8000);
-            scottPlotUC2.SP.AxisSet(0, (double)RATE / 1000 / kc, 0, 800);
+            scottPlotUC1.SP.AxisSet(0, BUFFERSIZE / 2, -12000, 12000);
+            scottPlotUC2.SP.AxisSet(0, (double)RATE / 1000 / kc, 0, 1000);
 
             // update the displays
             scottPlotUC1.UpdateGraph();
@@ -330,18 +317,24 @@ namespace microphone
             //todo: this could be much faster by reusing variables
         }
 
-        private void button2_Click(object sender, EventArgs e)
-        {
-            wi.StopRecording();
-        }
-
         private void StartRecord()
         {
             IsRecording = true;
+            wi.StartRecording();
             wri = new LameMP3FileWriter(FullLocalFilename, wi.WaveFormat, 64);
             ClearAccum();
             UpdateAudioGraph();
             timer1.Enabled = true;
+        }
+        private void Finish()
+        {
+            wi.StopRecording();
+            while (IsRecording)
+            {
+                Application.DoEvents();
+                System.Threading.Thread.Sleep(1);
+            }
+            UploadFileToServer();
         }
 
         private void ClearAccum()
@@ -386,7 +379,22 @@ namespace microphone
                 case CloseReason.FormOwnerClosing:
                 //用户通过UI关闭窗口或者通过Alt+F4关闭窗口
                 case CloseReason.UserClosing:
-                    e.Cancel = true;//拦截，不响应操作
+                //操作系统准备关机
+                case CloseReason.WindowsShutDown:
+                    if (IsRecording)
+                    {
+                        if (MessageBox.Show("将要传输录音到服务器并结束，是否继续？", "提示", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                        {
+                            Finish();
+                            e.Cancel = false; //不拦截，响应操作
+                            return;
+                        }
+                        e.Cancel = true;//拦截，不响应操作
+                    }
+                    else
+                    {
+                        e.Cancel = false; //不拦截，响应操作
+                    }
                     break;
                 //应用程序要求关闭窗口
                 case CloseReason.ApplicationExitCall:
@@ -396,13 +404,25 @@ namespace microphone
                 case CloseReason.TaskManagerClosing:
                     e.Cancel = false;//不拦截，响应操作
                     break;
-                //操作系统准备关机
-                case CloseReason.WindowsShutDown:
-                    e.Cancel = false;//不拦截，响应操作
-                    break;
                 default:
                     break;
             }
         }
+        /*
+                private void GetFromServer()
+                {
+                    try
+                    {
+                        var jsonText = new WebClient().DownloadString(ServerUrl + "/tsdb");
+                        dynamic jo = JsonConvert.DeserializeObject(jsonText);
+                        TSDB = jo["tsdb"]["host"];
+                        Console.WriteLine(TSDB);
+                    }
+                    catch (Exception)
+                    {
+                        MessageBox.Show("无法连接到服务器 " + ServerUrl, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+        */
     }
 }
