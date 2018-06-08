@@ -153,7 +153,6 @@ namespace microphone
                 WaveFormat = new NAudio.Wave.WaveFormat(RATE, 1)
             };
             // wi.BufferMilliseconds = (int)((double)BUFFERSIZE / (double)RATE * 1000.0);
-            Console.WriteLine(wi.BufferMilliseconds);
 
             // create a wave buffer and start the recording
             wi.DataAvailable += new EventHandler<WaveInEventArgs>(wi_DataAvailable);
@@ -319,8 +318,17 @@ namespace microphone
 
         private void StartRecord()
         {
+            try
+            {
+                wi.StartRecording();
+            }
+            catch (Exception)
+            {
+                MessageBox.Show("无法开启录音，请检查设备配置", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Application.Exit();
+                return;
+            }
             IsRecording = true;
-            wi.StartRecording();
             wri = new LameMP3FileWriter(FullLocalFilename, wi.WaveFormat, 64);
             ClearAccum();
             UpdateAudioGraph();
