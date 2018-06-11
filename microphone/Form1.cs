@@ -171,9 +171,11 @@ namespace microphone
         {
             uf = new UploadingForm();
             uf.Show();
+            Application.DoEvents();
             CopyFiles(FileDir, FullServerFilename);
+            Application.DoEvents();
             uf.Close();
-            uf.Dispose();
+            uf = null;
         }
 
         private void CopyFiles(string srcdir, string dst)
@@ -199,7 +201,8 @@ namespace microphone
 
         private void OnFileProgress(FileCopyLib.FileProgress s)
         {
-            uf.SetValue(s.Percentage);
+            if (uf != null)
+                uf.SetValue(s.Percentage);
         }
 
         // adds data to the audio recording buffer
