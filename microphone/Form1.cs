@@ -54,8 +54,8 @@ namespace microphone
         private string FullLocalFilename;
         private string FullServerFilename;
 
-        private readonly string username = "admin";
-        private readonly string password = "admin@123456";
+        private readonly string username = "dhly";
+        private readonly string password = "dhly@123";
 
         private bool IsRecording = false;
 

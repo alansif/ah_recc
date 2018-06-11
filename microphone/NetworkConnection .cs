@@ -21,6 +21,8 @@ namespace microphone
         {
             _networkName = networkName;
 
+            WNetCancelConnection2(_networkName, 0, true);
+
             var netResource = new NetResource()
             {
                 Scope = ResourceScope.GlobalNetwork,
