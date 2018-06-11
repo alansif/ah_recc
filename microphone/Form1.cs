@@ -339,6 +339,7 @@ namespace microphone
         }
         private void Finish()
         {
+            timer1.Enabled = false;
             wi.StopRecording();
             while (IsRecording)
             {
